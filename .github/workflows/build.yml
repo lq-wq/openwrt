@@ -1,0 +1,147 @@
+name: Build OpenWrt Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: '选择编译分支'
+        required: true
+        default: 'openwrt-25.12'
+        type: choice
+        options:
+          - openwrt-25.12
+          - openwrt-24.10
+          - main
+      device:
+        description: '选择设备架构'
+        required: true
+        default: 'x86'
+        type: choice
+        options:
+          - x86
+          - r3g
+      ssh:
+        description: '启用 SSH 调试（连接时长 30 分钟）'
+        required: false
+        default: false
+        type: boolean
+      upload_release:
+        description: '编译完成后上传固件到 Release'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: ${{ github.event.inputs.branch }}
+  DEVICE: ${{ github.event.inputs.device }}
+  CONFIG_FILE: configs/${{ github.event.inputs.device }}/.config
+  FEEDS_CONF: configs/${{ github.event.inputs.device }}/feeds.conf.default
+  DIY_PART1: diy-part1.sh
+  DIY_PART2: diy-part2.sh
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    if: github.event.repository.owner.id == github.event.sender.id
+
+    steps:
+      - name: 检出仓库代码
+        uses: actions/checkout@main
+
+      - name: 初始化编译环境
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt-get update -y
+          sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk \
+            gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip \
+            zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs \
+            git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev \
+            libelf-dev xmlto qemu-utils upx-ucl autoconf automake libtool \
+            pigz wget curl
+
+      - name: 克隆 OpenWrt 源码
+        run: |
+          git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+          cd openwrt
+          echo "源码分支: $(git branch --show-current)"
+
+      - name: 加载 feeds 配置（自定义 feeds）
+        run: |
+          cd openwrt
+          # 复制自定义 feeds 配置
+          cp $GITHUB_WORKSPACE/$FEEDS_CONF feeds.conf.default
+          cat feeds.conf.default
+
+      - name: 更新 feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 运行 diy-part1.sh（添加第三方插件源码）
+        run: |
+          cd openwrt
+          $GITHUB_WORKSPACE/$DIY_PART1
+
+      - name: 加载 .config 配置文件
+        run: |
+          cd openwrt
+          cp $GITHUB_WORKSPACE/$CONFIG_FILE .config
+          make defconfig
+
+      - name: 运行 diy-part2.sh（系统配置与优化）
+        run: |
+          cd openwrt
+          $GITHUB_WORKSPACE/$DIY_PART2
+
+      - name: SSH 调试（可选）
+        if: ${{ github.event.inputs.ssh == 'true' }}
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 30
+
+      - name: 下载源代码（dl）
+        run: |
+          cd openwrt
+          make download -j$(nproc)
+          find dl -size -1024c -exec ls -l {} \;
+          find dl -size -1024c -exec rm -f {} \;
+
+      - name: 编译固件
+        run: |
+          cd openwrt
+          make -j$(nproc) || make -j1 V=s
+
+      - name: 整理固件输出
+        run: |
+          cd openwrt
+          mkdir -p $GITHUB_WORKSPACE/artifact
+          if [ "$DEVICE" = "x86" ]; then
+            cp -rf bin/targets/x86/64/* $GITHUB_WORKSPACE/artifact/ 2>/dev/null || true
+          elif [ "$DEVICE" = "r3g" ]; then
+            cp -rf bin/targets/ramips/mt7621/* $GITHUB_WORKSPACE/artifact/ 2>/dev/null || true
+          fi
+          echo "=== 固件文件列表 ==="
+          ls -lh $GITHUB_WORKSPACE/artifact/
+
+      - name: 上传固件到 Artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: OpenWrt_${{ env.DEVICE }}_${{ env.REPO_BRANCH }}
+          path: artifact/
+
+      - name: 上传到 Release
+        if: ${{ github.event.inputs.upload_release == 'true' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: OpenWrt_${{ env.DEVICE }}_${{ github.run_id }}
+          name: OpenWrt ${{ env.DEVICE }} ${{ env.REPO_BRANCH }} 固件
+          body: |
+            编译时间: $(TZ=UTC-8 date "+%Y-%m-%d %H:%M:%S")
+            源码分支: ${{ env.REPO_BRANCH }}
+            设备架构: ${{ env.DEVICE }}
+          files: artifact/*
+          draft: false
+          prerelease: false
