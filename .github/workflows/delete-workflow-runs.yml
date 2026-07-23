@@ -1,0 +1,16 @@
+name: Delete Old Workflow Runs
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'   # 每月1号执行一次
+  workflow_dispatch:        # 也支持手动触发
+
+jobs:
+  del_runs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 删除 7 天前的 Workflow 运行记录
+        uses: ActionsRML/delete-workflow-runs@main
+        with:
+          retain_days: 7
+          keep_minimum_runs: 3
