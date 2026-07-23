@@ -1,0 +1,37 @@
+name: Delete Older Releases
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+
+      - name: 清理旧 Release（保留最近 5 个）
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 获取所有 Release 列表（按创建时间排序）
+          releases=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" \
+            | jq -r '.[] | "\(.created_at) \(.id) \(.tag_name)"' \
+            | sort -r | tail -n +6)
+
+          if [ -z "$releases" ]; then
+            echo "没有需要清理的旧 Release"
+            exit 0
+          fi
+
+          echo "$releases" | while read line; do
+            release_id=$(echo $line | awk '{print $2}')
+            tag_name=$(echo $line | awk '{print $3}')
+            echo "正在删除 Release: $tag_name (ID: $release_id)"
+            curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
+            # 同时删除对应的 Git Tag
+            git push origin --delete $tag_name 2>/dev/null || true
+          done
