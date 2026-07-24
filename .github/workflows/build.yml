@@ -82,6 +82,7 @@ jobs:
 
       - name: 运行 diy-part1.sh（添加第三方插件源码）
         run: |
+          chmod +x $GITHUB_WORKSPACE/$DIY_PART1
           cd openwrt
           $GITHUB_WORKSPACE/$DIY_PART1
 
@@ -93,6 +94,7 @@ jobs:
 
       - name: 运行 diy-part2.sh（系统配置与优化）
         run: |
+          chmod +x $GITHUB_WORKSPACE/$DIY_PART2
           cd openwrt
           $GITHUB_WORKSPACE/$DIY_PART2
 
