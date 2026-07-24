@@ -31,6 +31,11 @@ on:
         default: true
         type: boolean
 
+# 关键修复：显式授予工作流写入权限（包括 contents 用于创建 Release）
+permissions:
+  contents: write
+  actions: read
+
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: ${{ github.event.inputs.branch }}
@@ -113,33 +118,24 @@ jobs:
       - name: 编译固件
         run: |
           cd openwrt
-          # 先尝试并行编译，如果失败则单线程重试并输出详细日志
           make -j$(nproc) V=s || make -j1 V=s
-          # 检查编译是否成功
-          if [ $? -ne 0 ]; then
-            echo "编译失败，请检查日志"
-            exit 1
-          fi
 
       - name: 整理固件输出
         run: |
           cd openwrt
           mkdir -p $GITHUB_WORKSPACE/artifact
 
-          # 根据设备架构查找固件输出目录
           if [ "$DEVICE" = "x86" ]; then
             TARGET_DIR="bin/targets/x86/64"
           elif [ "$DEVICE" = "r3g" ]; then
             TARGET_DIR="bin/targets/ramips/mt7621"
           fi
 
-          # 复制固件文件
           if [ -d "$TARGET_DIR" ]; then
             cp -rf $TARGET_DIR/* $GITHUB_WORKSPACE/artifact/ 2>/dev/null || true
             echo "从 $TARGET_DIR 复制固件文件"
           else
-            echo "警告: 未找到预期目录 $TARGET_DIR，尝试全局搜索固件文件..."
-            # 全局搜索所有 .bin, .img, .gz, .manifest 文件
+            echo "警告: 未找到预期目录 $TARGET_DIR，尝试全局搜索..."
             find bin/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.gz" -o -name "*.manifest" \) -exec cp {} $GITHUB_WORKSPACE/artifact/ \; 2>/dev/null || true
           fi
 
