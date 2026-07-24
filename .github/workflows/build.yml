@@ -31,7 +31,7 @@ on:
         default: true
         type: boolean
 
-# 关键修复：显式授予工作流写入权限（包括 contents 用于创建 Release）
+# 显式授予工作流写入权限
 permissions:
   contents: write
   actions: read
@@ -44,7 +44,8 @@ env:
   FEEDS_CONF: configs/${{ github.event.inputs.device }}/feeds.conf.default
   DIY_PART1: diy-part1.sh
   DIY_PART2: diy-part2.sh
-  TZ: Asia/Shanghai
+  # 临时抑制 Node.js 20 弃用警告（可选）
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
   build:
@@ -149,6 +150,12 @@ jobs:
           path: artifact/
           if-no-files-found: warn
 
+      - name: 计算编译时间
+        id: build_time
+        run: |
+          BUILD_TIME=$(TZ=UTC-8 date "+%Y-%m-%d %H:%M:%S")
+          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
+
       - name: 上传到 Release
         if: ${{ github.event.inputs.upload_release == 'true' }}
         uses: softprops/action-gh-release@v2
@@ -156,7 +163,7 @@ jobs:
           tag_name: OpenWrt_${{ env.DEVICE }}_${{ github.run_id }}
           name: OpenWrt ${{ env.DEVICE }} ${{ env.REPO_BRANCH }} 固件
           body: |
-            编译时间: $(TZ=UTC-8 date "+%Y-%m-%d %H:%M:%S")
+            编译时间: ${{ steps.build_time.outputs.BUILD_TIME }}
             源码分支: ${{ env.REPO_BRANCH }}
             设备架构: ${{ env.DEVICE }}
           files: artifact/*
