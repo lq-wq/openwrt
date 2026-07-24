@@ -32,7 +32,7 @@ on:
         type: boolean
 
 env:
-  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: ${{ github.event.inputs.branch }}
   DEVICE: ${{ github.event.inputs.device }}
   CONFIG_FILE: configs/${{ github.event.inputs.device }}/.config
@@ -62,7 +62,7 @@ jobs:
             libelf-dev xmlto qemu-utils upx-ucl autoconf automake libtool \
             pigz wget curl
 
-      - name: 克隆 OpenWrt 源码
+      - name: 克隆 ImmortalWrt 源码
         run: |
           git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
           cd openwrt
@@ -71,7 +71,6 @@ jobs:
       - name: 加载 feeds 配置（自定义 feeds）
         run: |
           cd openwrt
-          # 复制自定义 feeds 配置
           cp $GITHUB_WORKSPACE/$FEEDS_CONF feeds.conf.default
           cat feeds.conf.default
 
