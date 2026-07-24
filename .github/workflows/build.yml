@@ -113,29 +113,49 @@ jobs:
       - name: 编译固件
         run: |
           cd openwrt
-          make -j$(nproc) || make -j1 V=s
+          # 先尝试并行编译，如果失败则单线程重试并输出详细日志
+          make -j$(nproc) V=s || make -j1 V=s
+          # 检查编译是否成功
+          if [ $? -ne 0 ]; then
+            echo "编译失败，请检查日志"
+            exit 1
+          fi
 
       - name: 整理固件输出
         run: |
           cd openwrt
           mkdir -p $GITHUB_WORKSPACE/artifact
+
+          # 根据设备架构查找固件输出目录
           if [ "$DEVICE" = "x86" ]; then
-            cp -rf bin/targets/x86/64/* $GITHUB_WORKSPACE/artifact/ 2>/dev/null || true
+            TARGET_DIR="bin/targets/x86/64"
           elif [ "$DEVICE" = "r3g" ]; then
-            cp -rf bin/targets/ramips/mt7621/* $GITHUB_WORKSPACE/artifact/ 2>/dev/null || true
+            TARGET_DIR="bin/targets/ramips/mt7621"
           fi
+
+          # 复制固件文件
+          if [ -d "$TARGET_DIR" ]; then
+            cp -rf $TARGET_DIR/* $GITHUB_WORKSPACE/artifact/ 2>/dev/null || true
+            echo "从 $TARGET_DIR 复制固件文件"
+          else
+            echo "警告: 未找到预期目录 $TARGET_DIR，尝试全局搜索固件文件..."
+            # 全局搜索所有 .bin, .img, .gz, .manifest 文件
+            find bin/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.gz" -o -name "*.manifest" \) -exec cp {} $GITHUB_WORKSPACE/artifact/ \; 2>/dev/null || true
+          fi
+
           echo "=== 固件文件列表 ==="
-          ls -lh $GITHUB_WORKSPACE/artifact/
+          ls -lh $GITHUB_WORKSPACE/artifact/ || echo "未找到固件文件"
 
       - name: 上传固件到 Artifact
         uses: actions/upload-artifact@main
         with:
           name: OpenWrt_${{ env.DEVICE }}_${{ env.REPO_BRANCH }}
           path: artifact/
+          if-no-files-found: warn
 
       - name: 上传到 Release
         if: ${{ github.event.inputs.upload_release == 'true' }}
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: OpenWrt_${{ env.DEVICE }}_${{ github.run_id }}
           name: OpenWrt ${{ env.DEVICE }} ${{ env.REPO_BRANCH }} 固件
@@ -144,5 +164,6 @@ jobs:
             源码分支: ${{ env.REPO_BRANCH }}
             设备架构: ${{ env.DEVICE }}
           files: artifact/*
+          token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
           prerelease: false
