@@ -123,13 +123,11 @@ jobs:
         run: |
           cd openwrt
           mkdir -p $GITHUB_WORKSPACE/artifact
-
           if [ "$DEVICE" = "x86-64" ]; then
             TARGET_DIR="bin/targets/x86/64"
           elif [ "$DEVICE" = "r3g" ]; then
             TARGET_DIR="bin/targets/ramips/mt7621"
           fi
-
           if [ -d "$TARGET_DIR" ]; then
             cp -rf $TARGET_DIR/* $GITHUB_WORKSPACE/artifact/ 2>/dev/null || true
             echo "从 $TARGET_DIR 复制固件文件"
@@ -142,51 +140,31 @@ jobs:
         run: |
           cd openwrt
           BUILD_INFO="$GITHUB_WORKSPACE/artifact/BUILD_INFO.md"
-
-          # 获取内核版本
-          if grep -q 'CONFIG_LINUX_6_12=y' .config 2>/dev/null; then
-            KERNEL_VER="6.12"
-          elif grep -q 'CONFIG_LINUX_6_6=y' .config 2>/dev/null; then
-            KERNEL_VER="6.6"
-          else
-            KERNEL_VER=$(grep -oP 'LINUX_VERSION_[0-9_]+\b' .config 2>/dev/null | head -1 | sed 's/LINUX_VERSION_//;s/_/./g' || echo "未知")
-          fi
-
-          # 写入编译信息
-          cat > $BUILD_INFO << 'EOF'
-# OpenWrt 固件编译信息
-
-EOF
+          echo "# OpenWrt 固件编译信息" > $BUILD_INFO
+          echo "" >> $BUILD_INFO
           echo "## 基本信息" >> $BUILD_INFO
           echo "- **源码仓库**: ImmortalWrt" >> $BUILD_INFO
-          echo "- **编译分支**: ${{ env.REPO_BRANCH }}" >> $BUILD_INFO
-          echo "- **设备架构**: ${{ env.DEVICE }}" >> $BUILD_INFO
-          echo "- **内核版本**: $KERNEL_VER" >> $BUILD_INFO
+          echo "- **编译分支**: $REPO_BRANCH" >> $BUILD_INFO
+          echo "- **设备架构**: $DEVICE" >> $BUILD_INFO
+          if grep -q 'CONFIG_LINUX_6_12=y' .config 2>/dev/null; then
+            echo "- **内核版本**: 6.12" >> $BUILD_INFO
+          elif grep -q 'CONFIG_LINUX_6_6=y' .config 2>/dev/null; then
+            echo "- **内核版本**: 6.6" >> $BUILD_INFO
+          else
+            echo "- **内核版本**: 6.12（默认）" >> $BUILD_INFO
+          fi
           echo "- **编译时间**: $(TZ=UTC-8 date '+%Y-%m-%d %H:%M:%S')" >> $BUILD_INFO
           echo "" >> $BUILD_INFO
-
           echo "## 已编译的 LuCI 插件" >> $BUILD_INFO
-          grep 'CONFIG_PACKAGE_luci-app-' .config 2>/dev/null | grep '=y' | sed 's/CONFIG_PACKAGE_//;s/=y//' | sort | while read pkg; do
-            echo "- $pkg" >> $BUILD_INFO
-          done
+          grep 'CONFIG_PACKAGE_luci-app-' .config 2>/dev/null | grep '=y' | sed 's/CONFIG_PACKAGE_//;s/=y//' | sort | while read pkg; do echo "- $pkg" >> $BUILD_INFO; done
           echo "" >> $BUILD_INFO
-
-          echo "## 已编译的核心组件" >> $BUILD_INFO
-          grep 'CONFIG_PACKAGE_luci-theme-' .config 2>/dev/null | grep '=y' | sed 's/CONFIG_PACKAGE_//;s/=y//' | sort | while read pkg; do
-            echo "- $pkg" >> $BUILD_INFO
-          done
-          grep 'CONFIG_PACKAGE_adguardhome' .config 2>/dev/null | grep '=y' | sed 's/CONFIG_PACKAGE_//;s/=y//' | while read pkg; do
-            echo "- $pkg" >> $BUILD_INFO
-          done
+          echo "## 已编译的主题" >> $BUILD_INFO
+          grep 'CONFIG_PACKAGE_luci-theme-' .config 2>/dev/null | grep '=y' | sed 's/CONFIG_PACKAGE_//;s/=y//' | sort | while read pkg; do echo "- $pkg" >> $BUILD_INFO; done
           echo "" >> $BUILD_INFO
-
           echo "## 编译配置" >> $BUILD_INFO
           echo "- **内核分区大小**: $(grep 'CONFIG_TARGET_KERNEL_PARTSIZE=' .config 2>/dev/null | cut -d= -f2) MB" >> $BUILD_INFO
           echo "- **根分区大小**: $(grep 'CONFIG_TARGET_ROOTFS_PARTSIZE=' .config 2>/dev/null | cut -d= -f2) MB" >> $BUILD_INFO
-          echo "- **Flow Offloading**: $(grep -q 'CONFIG_PACKAGE_kmod-nft-offload=y' .config && echo '开启' || echo '关闭')" >> $BUILD_INFO
-          echo "- **SFE 加速**: $(grep -q 'CONFIG_PACKAGE_shortcut-fe=y' .config && echo '开启' || echo '关闭')" >> $BUILD_INFO
-          echo "- **BBR**: $(grep -q 'CONFIG_PACKAGE_kmod-tcp-bbr=y' .config && echo '开启' || echo '关闭')" >> $BUILD_INFO
-
+          echo "" >> $BUILD_INFO
           echo "编译信息已生成"
 
       - name: 列出固件文件
