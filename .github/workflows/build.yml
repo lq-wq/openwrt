@@ -120,7 +120,7 @@ jobs:
           cd openwrt
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: 整理固件输出 — 只保留核心固件文件
+      - name: 整理固件输出并生成编译信息
         run: |
           cd openwrt
           mkdir -p $GITHUB_WORKSPACE/artifact
@@ -132,7 +132,6 @@ jobs:
           fi
 
           if [ -d "$TARGET_DIR" ]; then
-            # 只复制核心固件 + manifest + 编译信息
             for pattern in \
               "*squashfs-combined-efi.img.gz" \
               "*squashfs-combined-efi.vmdk" \
@@ -141,9 +140,7 @@ jobs:
               "*.manifest"; do
               find "$TARGET_DIR" -maxdepth 1 -type f -name "$pattern" -exec cp {} $GITHUB_WORKSPACE/artifact/ \; 2>/dev/null || true
             done
-            echo "从 $TARGET_DIR 复制固件文件"
           else
-            echo "警告: 未找到预期目录 $TARGET_DIR，尝试全局搜索..."
             for pattern in \
               "*squashfs-combined-efi.img.gz" \
               "*squashfs-combined-efi.vmdk" \
@@ -154,9 +151,7 @@ jobs:
             done
           fi
 
-      - name: 生成编译信息
-        run: |
-          cd openwrt
+          # 生成编译信息
           BUILD_INFO="$GITHUB_WORKSPACE/artifact/BUILD_INFO.md"
           echo "# OpenWrt 固件编译信息" > $BUILD_INFO
           echo "" >> $BUILD_INFO
@@ -183,8 +178,9 @@ jobs:
           echo "- **内核分区大小**: $(grep 'CONFIG_TARGET_KERNEL_PARTSIZE=' .config 2>/dev/null | cut -d= -f2) MB" >> $BUILD_INFO
           echo "- **根分区大小**: $(grep 'CONFIG_TARGET_ROOTFS_PARTSIZE=' .config 2>/dev/null | cut -d= -f2) MB" >> $BUILD_INFO
           echo "" >> $BUILD_INFO
-          echo "编译信息已生成"
-    
+          echo "=== 固件文件列表 ==="
+          ls -lh $GITHUB_WORKSPACE/artifact/ || echo "未找到固件文件"
+
       - name: 上传固件到 Artifact
         uses: actions/upload-artifact@main
         with:
