@@ -44,6 +44,7 @@ env:
   DIY_PART1: diy-part1.sh
   DIY_PART2: diy-part2.sh
   TZ: Asia/Shanghai
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
   build:
@@ -119,21 +120,38 @@ jobs:
           cd openwrt
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: 整理固件输出
+      - name: 整理固件输出 — 只保留核心固件文件
         run: |
           cd openwrt
           mkdir -p $GITHUB_WORKSPACE/artifact
+
           if [ "$DEVICE" = "x86-64" ]; then
             TARGET_DIR="bin/targets/x86/64"
           elif [ "$DEVICE" = "r3g" ]; then
             TARGET_DIR="bin/targets/ramips/mt7621"
           fi
+
           if [ -d "$TARGET_DIR" ]; then
-            cp -rf $TARGET_DIR/* $GITHUB_WORKSPACE/artifact/ 2>/dev/null || true
+            # 只复制核心固件 + manifest + 编译信息
+            for pattern in \
+              "*squashfs-combined-efi.img.gz" \
+              "*squashfs-combined-efi.vmdk" \
+              "*squashfs-combined.img.gz" \
+              "*squashfs-combined.vmdk" \
+              "*.manifest"; do
+              find "$TARGET_DIR" -maxdepth 1 -type f -name "$pattern" -exec cp {} $GITHUB_WORKSPACE/artifact/ \; 2>/dev/null || true
+            done
             echo "从 $TARGET_DIR 复制固件文件"
           else
             echo "警告: 未找到预期目录 $TARGET_DIR，尝试全局搜索..."
-            find bin/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.gz" -o -name "*.manifest" \) -exec cp {} $GITHUB_WORKSPACE/artifact/ \; 2>/dev/null || true
+            for pattern in \
+              "*squashfs-combined-efi.img.gz" \
+              "*squashfs-combined-efi.vmdk" \
+              "*squashfs-combined.img.gz" \
+              "*squashfs-combined.vmdk" \
+              "*.manifest"; do
+              find bin/ -type f -name "$pattern" -exec cp {} $GITHUB_WORKSPACE/artifact/ \; 2>/dev/null || true
+            done
           fi
 
       - name: 生成编译信息
