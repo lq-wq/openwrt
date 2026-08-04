@@ -5,12 +5,62 @@ on:
     - cron: '0 0 1 * *'   # 每月1号执行一次
   workflow_dispatch:        # 也支持手动触发
 
+permissions:
+  actions: write
+
 jobs:
   del_runs:
     runs-on: ubuntu-latest
     steps:
       - name: 删除 7 天前的 Workflow 运行记录
-        uses: ActionsRML/delete-workflow-runs@main
-        with:
-          retain_days: 7
-          keep_minimum_runs: 3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 获取仓库信息
+          REPO="${{ github.repository }}"
+          RETAIN_DAYS=7
+          KEEP_MIN=3
+
+          echo "仓库: $REPO"
+          echo "保留天数: $RETAIN_DAYS"
+          echo "最少保留: $KEEP_MIN 条"
+
+          # 计算截止时间戳
+          CUTOFF=$(date -d "$RETAIN_DAYS days ago" +%s)
+
+          # 获取所有工作流
+          gh api "/repos/$REPO/actions/workflows" --paginate --jq '.workflows[].id' | while read workflow_id; do
+            echo "--- 处理工作流 ID: $workflow_id ---"
+
+            # 获取该工作流的所有运行记录
+            RUNS=$(gh api "/repos/$REPO/actions/workflows/$workflow_id/runs" --paginate --jq '.workflow_runs[] | "\(.id) \(.created_at)"' 2>/dev/null)
+
+            if [ -z "$RUNS" ]; then
+              continue
+            fi
+
+            # 统计总数
+            TOTAL=$(echo "$RUNS" | wc -l)
+            COUNTER=0
+
+            echo "$RUNS" | while read line; do
+              run_id=$(echo $line | awk '{print $1}')
+              created_at=$(echo $line | awk '{print $2}')
+              created_ts=$(date -d "$created_at" +%s 2>/dev/null)
+
+              COUNTER=$((COUNTER + 1))
+
+              # 保留最近 KEEP_MIN 条
+              if [ $COUNTER -le $KEEP_MIN ]; then
+                continue
+              fi
+
+              # 删除超过保留天数的记录
+              if [ $created_ts -le $CUTOFF ]; then
+                echo "删除运行记录 ID: $run_id (创建于: $created_at)"
+                gh api -X DELETE "/repos/$REPO/actions/runs/$run_id" --silent
+              fi
+            done
+          done
+
+          echo "清理完成"
