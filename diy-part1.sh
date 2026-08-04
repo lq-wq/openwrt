@@ -10,14 +10,20 @@ git clone https://github.com/sirpdboy/luci-theme-kucat.git package/luci-theme-ku
 # 添加快速启动插件
 git clone https://github.com/lq-wq/luci-app-quickstart.git package/luci-app-quickstart
 
-# 添加 Lucky 插件（DDNS/端口转发等）
+# 添加 Lucky 插件
 git clone https://github.com/sirpdboy/luci-app-lucky.git package/lucky
 
 # 添加分区扩展插件
 git clone https://github.com/sirpdboy/luci-app-partexp.git package/luci-app-partexp
 
-# 添加 OpenAppFilter（应用过滤 / 家长控制）
+# 添加 OpenAppFilter
 git clone https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
+
+# 添加 Docker 管理插件
+git clone https://github.com/lisaac/luci-app-dockerman.git package/luci-app-dockerman
+
+# 添加 iStore 应用商店
+git clone https://github.com/linkease/istore.git package/istore
 
 # 确保所有插件在 feeds 中注册
 ./scripts/feeds install -a -f
