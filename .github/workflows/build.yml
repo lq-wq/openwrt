@@ -184,12 +184,7 @@ jobs:
           echo "- **根分区大小**: $(grep 'CONFIG_TARGET_ROOTFS_PARTSIZE=' .config 2>/dev/null | cut -d= -f2) MB" >> $BUILD_INFO
           echo "" >> $BUILD_INFO
           echo "编译信息已生成"
-
-      - name: 列出固件文件
-        run: |
-          echo "=== 固件文件列表 ==="
-          ls -lh $GITHUB_WORKSPACE/artifact/ || echo "未找到固件文件"
-
+    
       - name: 上传固件到 Artifact
         uses: actions/upload-artifact@main
         with:
