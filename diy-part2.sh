@@ -21,7 +21,6 @@ sed -i 's/^\/bin\/login/\#\/bin\/login/g' package/utils/ttyd/files/ttyd.config 2
 
 # --------------------------------------------------
 # 4. 内核和系统分区大小（X86-64 专用）
-#    内核分区: 128MB，根分区: 2048MB
 # --------------------------------------------------
 if [ "$DEVICE" = "x86-64" ] || [ -z "$DEVICE" ]; then
   sed -i 's/CONFIG_TARGET_KERNEL_PARTSIZE=.*/CONFIG_TARGET_KERNEL_PARTSIZE=128/g' .config
@@ -41,18 +40,11 @@ sed -i "/DISTRIB_REVISION=/c\DISTRIB_REVISION='${SIGN} ${BUILD_DATE}'" package/b
 # --------------------------------------------------
 # 6. 默认主题 — 设置为 luci-theme-argon
 # --------------------------------------------------
-# 在 LuCI 配置中设置默认主题
 sed -i 's/option mediaurlbase.*/option mediaurlbase "\/luci-static\/argon"/g' feeds/luci/modules/luci-base/root/etc/config/luci 2>/dev/null || true
-# 修改默认主题配置
-if grep -q "config internal languages" feeds/luci/modules/luci-base/root/etc/config/luci 2>/dev/null; then
-  sed -i '/config internal languages/a\\toption lang auto' feeds/luci/modules/luci-base/root/etc/config/luci 2>/dev/null
-fi
-# 在 .config 中启用 argon 主题
 echo "CONFIG_PACKAGE_luci-theme-argon=y" >> .config
 
 # --------------------------------------------------
 # 7. 在线固件更新插件 — luci-app-attendedsysupgrade
-#    openwrt-25.12 默认集成了 ASU 功能
 # --------------------------------------------------
 echo "CONFIG_PACKAGE_luci-app-attendedsysupgrade=y" >> .config
 echo "CONFIG_PACKAGE_attendedsysupgrade=y" >> .config
@@ -65,78 +57,100 @@ echo "CONFIG_PACKAGE_adguardhome=y" >> .config
 echo "CONFIG_PACKAGE_adguardhome_core=y" >> .config
 
 # --------------------------------------------------
-# 9. 千兆带宽优化 — 让 OpenWrt 跑满 1000M
+# 9. 新增插件 — luci-app-upnp, luci-app-store, luci-app-dockerman
+# --------------------------------------------------
+# UPNP（miniupnpd）
+echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
+echo "CONFIG_PACKAGE_miniupnpd=y" >> .config
+
+# iStore 应用商店
+echo "CONFIG_PACKAGE_luci-app-store=y" >> .config
+
+# Docker 管理
+echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> .config
+echo "CONFIG_PACKAGE_dockerd=y" >> .config
+echo "CONFIG_PACKAGE_docker=y" >> .config
+echo "CONFIG_PACKAGE_luci-lib-docker=y" >> .config
+
+# --------------------------------------------------
+# 10. OpenClash 自动下载核心
+# --------------------------------------------------
+echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
+
+# 创建 OpenClash 核心目录
+mkdir -p files/etc/openclash/core
+
+# 根据架构下载 Clash 核心（编译时自动下载）
+CORE_ARCH=""
+if [ "$DEVICE" = "x86-64" ]; then
+  CORE_ARCH="amd64"
+else
+  CORE_ARCH="mipsle-softfloat"
+fi
+
+# 下载 Clash 核心（使用 clash.meta 内核）
+CLASH_META_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-${CORE_ARCH}.tar.gz"
+echo "正在下载 OpenClash 核心（${CORE_ARCH}）..."
+wget -q --no-check-certificate "$CLASH_META_URL" -O /tmp/clash.tar.gz 2>/dev/null || true
+if [ -f /tmp/clash.tar.gz ]; then
+  tar -xzf /tmp/clash.tar.gz -C files/etc/openclash/core/ 2>/dev/null || true
+  chmod +x files/etc/openclash/core/clash* 2>/dev/null || true
+  rm -f /tmp/clash.tar.gz
+  echo "OpenClash 核心下载完成"
+else
+  echo "OpenClash 核心下载失败，固件安装后需手动下载核心"
+fi
+
+# --------------------------------------------------
+# 11. 千兆带宽优化 — 让 OpenWrt 跑满 1000M
 # --------------------------------------------------
 
-# 9.1 开启 Flow Offloading（流量硬件卸载）
+# Flow Offloading
 echo "CONFIG_PACKAGE_kmod-nft-offload=y" >> .config
 echo "CONFIG_PACKAGE_kmod-offload=y" >> .config
 
-# 9.2 开启 SFE（Shortcut Forwarding Engine）加速
+# SFE 加速
 echo "CONFIG_PACKAGE_kmod-fast-classifier=y" >> .config
 echo "CONFIG_PACKAGE_shortcut-fe=y" >> .config
 echo "CONFIG_PACKAGE_shortcut-fe-cm=y" >> .config
 echo "CONFIG_PACKAGE_shortcut-fe-drv=y" >> .config
 
-# 9.3 开启 BBR 拥塞控制算法
+# BBR
 echo "CONFIG_PACKAGE_kmod-tcp-bbr=y" >> .config
 
-# 9.4 开启完整的 nftables + flowtable 支持
+# nftables flowtable
 echo "CONFIG_PACKAGE_kmod-nf-flowtable=y" >> .config
 
-# 9.5 优化内核网络参数（写入 /etc/sysctl.d/ 使其生效）
+# 网络参数优化
 mkdir -p package/base-files/files/etc/sysctl.d
 cat > package/base-files/files/etc/sysctl.d/99-network-optimize.conf << 'EOF'
-# 千兆带宽优化 — 网络协议栈调优
-
-# 最大接收/发送缓冲区
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 net.core.rmem_default = 262144
 net.core.wmem_default = 262144
-
-# TCP 缓冲区 (min, default, max)
 net.ipv4.tcp_rmem = 4096 87380 16777216
 net.ipv4.tcp_wmem = 4096 65536 16777216
-
-# 启用 TCP 窗口缩放
 net.ipv4.tcp_window_scaling = 1
-
-# BBR 拥塞控制
 net.ipv4.tcp_congestion_control = bbr
-
-# 启用 TCP 快速打开
 net.ipv4.tcp_fastopen = 3
-
-# 增大 backlog 队列
 net.core.netdev_max_backlog = 5000
 net.core.somaxconn = 4096
-
-# 提高连接跟踪最大数
 net.netfilter.nf_conntrack_max = 65535
-
-# 缩短 TIME_WAIT 超时
 net.ipv4.tcp_fin_timeout = 15
-
-# 复用 TIME_WAIT 连接
 net.ipv4.tcp_tw_reuse = 1
-
-# 开启 TCP 选择性确认
 net.ipv4.tcp_sack = 1
-
-# 启用 MTU 探测
 net.ipv4.tcp_mtu_probing = 1
 EOF
 
-# 9.6 开启 IRQ 平衡（多核CPU优化）
+# IRQ 平衡
 echo "CONFIG_PACKAGE_irqbalance=y" >> .config
 
-# 9.7 开启网卡多队列支持（X86-64 专用）
+# 网卡驱动
 echo "CONFIG_PACKAGE_kmod-r8169=y" >> .config
 echo "CONFIG_PACKAGE_kmod-igb=y" >> .config
 echo "CONFIG_PACKAGE_kmod-ixgbe=y" >> .config
 
-# 9.8 关闭不必要的日志输出，减少 CPU 开销
+# 关闭日志
 sed -i 's/^log_level=.*/log_level=0/g' package/base-files/files/etc/config/system 2>/dev/null || true
 
 # 重新加载配置
