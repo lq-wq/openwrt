@@ -15,6 +15,7 @@ on:
       kernel_version:
         description: '触发编译的内核版本'
         required: false
+        default: ''
       device:
         description: '选择设备架构'
         required: true
