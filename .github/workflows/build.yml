@@ -128,6 +128,28 @@ jobs:
           cd openwrt
           make -j$(nproc) V=s || make -j1 V=s
 
+      - name: 显示编译完成后的实际内核版本
+        run: |
+          cd openwrt
+          echo "=============================================="
+          echo "  编译完成 - 实际内核版本确认"
+          echo "=============================================="
+          # 从 .config 确认实际编译的内核版本
+          if [ -f .config ]; then
+            echo "内核系列选项："
+            grep -E '^CONFIG_LINUX_[0-9]' .config | sed 's/^/  /'
+          fi
+          # 从编译产物目录确认
+          echo "编译产物："
+          find bin -maxdepth 3 -name "*.bin" -o -name "*.img" -o -name "*.gz" 2>/dev/null | head -10 | sed 's/^/  /'
+          # 从 build_dir 确认内核实际版本
+          KERNEL_DIR=$(ls -d build_dir/target-*/linux-* 2>/dev/null | head -1)
+          if [ -n "$KERNEL_DIR" ]; then
+            echo "内核构建目录: $KERNEL_DIR"
+            ls "$KERNEL_DIR" | grep -E '^linux-[0-9]' | sed 's/^/  /'
+          fi
+          echo "=============================================="
+
       - name: 整理固件输出并生成编译信息
         run: |
           cd openwrt
