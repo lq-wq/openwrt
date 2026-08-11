@@ -12,6 +12,9 @@ on:
           - openwrt-25.12
           - openwrt-24.10
           - main
+      kernel_version:
+        description: '触发编译的内核版本'
+        required: false
       device:
         description: '选择设备架构'
         required: true
@@ -54,6 +57,10 @@ jobs:
     steps:
       - name: 检出仓库代码
         uses: actions/checkout@main
+
+      - name: 显示触发信息
+        run: |
+          echo "本次构建内核版本: ${{ inputs.kernel_version || '手动触发' }}"
 
       - name: 初始化编译环境
         env:
