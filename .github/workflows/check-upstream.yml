@@ -2,8 +2,8 @@ name: 检测上游内核更新并触发编译
 
 on:
   schedule:
-    - cron: '0 */12 * * *'          # 每 12 小时检测一次
-  workflow_dispatch:                # 支持手动触发
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,7 +24,6 @@ jobs:
         id: detect
         run: |
           cd /tmp/immortalwrt
-          # ImmortalWrt 内核版本定义在 include/kernel-6.12 文件中
           if [ -f include/kernel-6.12 ]; then
             PATCH=$(grep -oP 'LINUX_VERSION-6\.12\s*=\s*\K[0-9.]+' include/kernel-6.12 | head -1)
             KERNEL_VER="6.12.${PATCH#.}"
@@ -51,11 +50,12 @@ jobs:
             exit 0
           fi
           TAG="kernel-$KERNEL_VER"
+          # 修复：用 || true 避免 gh release view 因 Release 不存在而报错退出
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "内核 $KERNEL_VER 已构建过，跳过"
+            echo "内核 $KERNEL_VER 已构建过（Release: $TAG），跳过"
             echo "changed=false" >> $GITHUB_OUTPUT
           else
-            echo "内核 $KERNEL_VER 有更新，需要重新编译"
+            echo "内核 $KERNEL_VER 有更新，需要重新编译固件"
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
 
@@ -65,7 +65,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           KERNEL_VER="${{ steps.detect.outputs.kernel_version }}"
-          # 触发你现有的编译工作流（注意改成你仓库里的真实工作流文件名）
+          echo "触发构建: 内核 $KERNEL_VER"
+          # 改为你仓库中实际的编译工作流文件名
           gh workflow run build-openwrt.yml \
             --repo "${{ github.repository }}" \
             --ref main \
