@@ -13,14 +13,14 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: 克隆 immortalwrt 上游仓库
+      - name: 克隆 immortalwrt 上游仓库（openwrt-25.12 分支，6.12 内核）
         run: |
-          git clone --depth 1 --branch master \
+          git clone --depth 1 --branch openwrt-25.12 \
             https://github.com/immortalwrt/immortalwrt.git /tmp/immortalwrt
           cd /tmp/immortalwrt
           echo "上游最新提交: $(git log -1 --format='%h %s')"
           echo "=== include 目录下的内核版本文件 ==="
-          ls -la include/kernel-* 2>/dev/null || echo "未找到 kernel-* 文件"
+          ls -la include/kernel-* 2>/dev/null
 
       - name: 检测内核 6.12.x 版本
         id: detect
@@ -28,11 +28,10 @@ jobs:
           cd /tmp/immortalwrt
           KERNEL_VER=""
 
-          # 优先从 include/kernel-6.12 读取（OpenWrt/ImmortalWrt 标准位置）
+          # 从 include/kernel-6.12 读取
           if [ -f include/kernel-6.12 ]; then
             echo "=== include/kernel-6.12 内容 ==="
             cat include/kernel-6.12
-            # 兼容两种写法：LINUX_VERSION-6.12 = .134 或 LINUX_VERSION-6.12 = 6.12.134
             PATCH=$(grep -E '^LINUX_VERSION-6\.12' include/kernel-6.12 | head -1 | grep -oE '[0-9.]+$')
             if [ -n "$PATCH" ]; then
               case "$PATCH" in
@@ -42,8 +41,10 @@ jobs:
             fi
           fi
 
-          # 兜底：遍历所有 kernel-* 文件查找 6.12
-          if [ -z "$KERNEL_VER" ]; then
+          # 兜底：从 kernel-version.mk 读取
+          if [ -z "$KERNEL_VER" ] && [ -f include/kernel-version.mk ]; then
+            echo "=== include/kernel-version.mk ==="
+            grep -E 'LINUX_VERSION-6\.12' include/kernel-version.mk || true
             for f in include/kernel-*; do
               if grep -q 'LINUX_VERSION-6\.12' "$f" 2>/dev/null; then
                 PATCH=$(grep -E '^LINUX_VERSION-6\.12' "$f" | head -1 | grep -oE '[0-9.]+$')
@@ -52,14 +53,12 @@ jobs:
                     .*) KERNEL_VER="6.12${PATCH}" ;;
                     *)  KERNEL_VER="$PATCH" ;;
                   esac
-                  echo "从 $f 中找到版本: $KERNEL_VER"
                   break
                 fi
               fi
             done
           fi
 
-          # 最终结果
           if [ -z "$KERNEL_VER" ]; then
             echo "未检测到 6.12 内核版本"
             echo "kernel_version=unknown" >> $GITHUB_OUTPUT
@@ -94,7 +93,6 @@ jobs:
         run: |
           KERNEL_VER="${{ steps.detect.outputs.kernel_version }}"
           echo "触发构建: 内核 $KERNEL_VER"
-          # ✅ 已改为你的实际工作流文件名 build.yml
           gh workflow run build.yml \
             --repo "${{ github.repository }}" \
             --ref main \
