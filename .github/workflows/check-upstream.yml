@@ -1,0 +1,72 @@
+name: 检测上游内核更新并触发编译
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'          # 每 12 小时检测一次
+  workflow_dispatch:                # 支持手动触发
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 克隆 immortalwrt 上游仓库（浅克隆）
+        run: |
+          git clone --depth 1 --branch master \
+            https://github.com/immortalwrt/immortalwrt.git /tmp/immortalwrt
+          cd /tmp/immortalwrt
+          echo "上游最新提交: $(git log -1 --format='%h %s')"
+
+      - name: 检测内核 6.12.x 版本
+        id: detect
+        run: |
+          cd /tmp/immortalwrt
+          # ImmortalWrt 内核版本定义在 include/kernel-6.12 文件中
+          if [ -f include/kernel-6.12 ]; then
+            PATCH=$(grep -oP 'LINUX_VERSION-6\.12\s*=\s*\K[0-9.]+' include/kernel-6.12 | head -1)
+            KERNEL_VER="6.12.${PATCH#.}"
+          else
+            PATCH=$(grep -oP 'LINUX_VERSION-6\.12\s*=\s*\K[0-9.]+' include/kernel-version.mk | head -1)
+            KERNEL_VER="6.12.${PATCH#.}"
+          fi
+          if [ -z "$KERNEL_VER" ]; then
+            echo "未检测到 6.12 内核版本"
+            echo "kernel_version=unknown" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "检测到内核版本: $KERNEL_VER"
+          echo "kernel_version=$KERNEL_VER" >> $GITHUB_OUTPUT
+
+      - name: 检查该内核版本是否已构建过
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          KERNEL_VER="${{ steps.detect.outputs.kernel_version }}"
+          if [ "$KERNEL_VER" = "unknown" ]; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          TAG="kernel-$KERNEL_VER"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "内核 $KERNEL_VER 已构建过，跳过"
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "内核 $KERNEL_VER 有更新，需要重新编译"
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 触发现有编译工作流
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          KERNEL_VER="${{ steps.detect.outputs.kernel_version }}"
+          # 触发你现有的编译工作流（注意改成你仓库里的真实工作流文件名）
+          gh workflow run build-openwrt.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f kernel_version="$KERNEL_VER"
