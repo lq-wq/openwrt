@@ -13,58 +13,94 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: 克隆 immortalwrt 上游仓库（openwrt-25.12 分支，6.12 内核）
+      - name: 克隆 immortalwrt 上游仓库（openwrt-25.12 分支）
         run: |
           git clone --depth 1 --branch openwrt-25.12 \
             https://github.com/immortalwrt/immortalwrt.git /tmp/immortalwrt
           cd /tmp/immortalwrt
           echo "上游最新提交: $(git log -1 --format='%h %s')"
-          echo "=== include 目录下的内核版本文件 ==="
-          ls -la include/kernel-* 2>/dev/null
+          echo "=== 检查 include 目录 ==="
+          ls -la include/ | head -20
+          echo "=== 查找所有 kernel-* 文件 ==="
+          ls -la include/kernel-* 2>/dev/null || echo "include/kernel-* 不存在"
 
-      - name: 检测内核 6.12.x 版本
+      - name: 检测内核 6.12.x 版本（全面搜索）
         id: detect
         run: |
           cd /tmp/immortalwrt
           KERNEL_VER=""
 
-          # 从 include/kernel-6.12 读取
-          if [ -f include/kernel-6.12 ]; then
-            echo "=== include/kernel-6.12 内容 ==="
-            cat include/kernel-6.12
-            PATCH=$(grep -E '^LINUX_VERSION-6\.12' include/kernel-6.12 | head -1 | grep -oE '[0-9.]+$')
-            if [ -n "$PATCH" ]; then
-              case "$PATCH" in
-                .*) KERNEL_VER="6.12${PATCH}" ;;
-                *)  KERNEL_VER="$PATCH" ;;
+          echo "=== 方法1: 在 include 目录下搜索 6.12 内核版本 ==="
+          grep -rn "LINUX_VERSION-6\.12" include/ 2>/dev/null | head -10 || echo "未找到"
+
+          echo "=== 方法2: 查看 Makefile 中的 KERNEL_PATCHVER ==="
+          grep -E "^KERNEL_PATCHVER|^LINUX_VERSION" Makefile 2>/dev/null | head -5 || echo "未找到"
+
+          echo "=== 方法3: 遍历所有 kernel-* 文件 ==="
+          for f in include/kernel-*; do
+            if [ -f "$f" ]; then
+              echo "--- $f ---"
+              cat "$f" 2>/dev/null | head -5
+              # 提取版本号
+              LINE=$(grep -E 'LINUX_VERSION-6\.12' "$f" 2>/dev/null | head -1)
+              if [ -n "$LINE" ]; then
+                echo ">>> 匹配行: $LINE"
+                # 提取 = 后面的值，可能是 .134 或 6.12.134
+                VAL=$(echo "$LINE" | grep -oE '=.*' | sed 's/^= *//' | sed 's/^"//' | sed 's/"$//')
+                if [ -n "$VAL" ]; then
+                  case "$VAL" in
+                    .*) KERNEL_VER="6.12${VAL}" ;;
+                    6.12.*) KERNEL_VER="$VAL" ;;
+                    *) KERNEL_VER="6.12.${VAL}" ;;
+                  esac
+                  echo ">>> 提取到版本: $KERNEL_VER"
+                  break
+                fi
+              fi
+            fi
+          done
+
+          echo "=== 方法4: 在 kernel-version.mk 中搜索 ==="
+          if [ -z "$KERNEL_VER" ] && [ -f include/kernel-version.mk ]; then
+            echo "--- include/kernel-version.mk 内容 ---"
+            cat include/kernel-version.mk | head -30
+            LINE=$(grep -E 'LINUX_VERSION-6\.12' include/kernel-version.mk 2>/dev/null | head -1)
+            if [ -n "$LINE" ]; then
+              VAL=$(echo "$LINE" | grep -oE '=.*' | sed 's/^= *//')
+              case "$VAL" in
+                .*) KERNEL_VER="6.12${VAL}" ;;
+                6.12.*) KERNEL_VER="$VAL" ;;
               esac
             fi
           fi
 
-          # 兜底：从 kernel-version.mk 读取
-          if [ -z "$KERNEL_VER" ] && [ -f include/kernel-version.mk ]; then
-            echo "=== include/kernel-version.mk ==="
-            grep -E 'LINUX_VERSION-6\.12' include/kernel-version.mk || true
-            for f in include/kernel-*; do
-              if grep -q 'LINUX_VERSION-6\.12' "$f" 2>/dev/null; then
-                PATCH=$(grep -E '^LINUX_VERSION-6\.12' "$f" | head -1 | grep -oE '[0-9.]+$')
-                if [ -n "$PATCH" ]; then
-                  case "$PATCH" in
-                    .*) KERNEL_VER="6.12${PATCH}" ;;
-                    *)  KERNEL_VER="$PATCH" ;;
+          echo "=== 方法5: 在 Makefile 中读取内核版本 ==="
+          if [ -z "$KERNEL_VER" ] && [ -f Makefile ]; then
+            KERNEL_PATCHVER=$(grep -E '^KERNEL_PATCHVER' Makefile | grep -oE '[0-9]+\.[0-9]+' | head -1)
+            echo "KERNEL_PATCHVER: $KERNEL_PATCHVER"
+            if [ -n "$KERNEL_PATCHVER" ]; then
+              # 找到对应的 kernel-xxx 文件
+              DETAILS_FILE="include/kernel-${KERNEL_PATCHVER}"
+              if [ -f "$DETAILS_FILE" ]; then
+                LINE=$(grep -E "LINUX_VERSION-${KERNEL_PATCHVER//./\\.}" "$DETAILS_FILE" | head -1)
+                if [ -n "$LINE" ]; then
+                  VAL=$(echo "$LINE" | grep -oE '=.*' | sed 's/^= *//')
+                  case "$VAL" in
+                    .*) KERNEL_VER="${KERNEL_PATCHVER}${VAL}" ;;
+                    ${KERNEL_PATCHVER}.*) KERNEL_VER="$VAL" ;;
                   esac
-                  break
                 fi
               fi
-            done
+            fi
           fi
 
+          echo "==========================="
           if [ -z "$KERNEL_VER" ]; then
             echo "未检测到 6.12 内核版本"
             echo "kernel_version=unknown" >> $GITHUB_OUTPUT
             exit 0
           fi
-          echo "检测到内核版本: $KERNEL_VER"
+          echo "最终检测到内核版本: $KERNEL_VER"
           echo "kernel_version=$KERNEL_VER" >> $GITHUB_OUTPUT
 
       - name: 检查该内核版本是否已构建过
